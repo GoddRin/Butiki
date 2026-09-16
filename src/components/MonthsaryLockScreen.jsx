@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Lock, Unlock, Sparkles, Heart, Clock, Key, Eye, EyeOff, Calendar, HelpCircle, Volume2, VolumeX, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { audio } from '../utils/audioSynth';
@@ -24,6 +24,9 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [activeClue, setActiveClue] = useState(null);
   const [musicPlaying, setMusicPlaying] = useState(false);
+
+  const audioRef = useRef(null);
+  const userManuallyPaused = useRef(false);
 
   // Sneak peek clues for Chimp
   const teaserClues = [
@@ -54,6 +57,46 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
   ];
 
   useEffect(() => {
+    // Song: [Oh My Venus OST] Kim Tae Woo & Ben - Darling U
+    const audioObj = new Audio('/audio/darling_u.mp3');
+    audioObj.loop = true;
+    audioObj.preload = 'auto';
+    audioObj.volume = 0.8;
+    audioRef.current = audioObj;
+
+    // Attempt autoplay if permitted by browser
+    audioObj.play()
+      .then(() => {
+        setMusicPlaying(true);
+      })
+      .catch(() => {
+        // Autoplay blocked until first user interaction
+        setMusicPlaying(false);
+      });
+
+    // Auto-start on first user gesture anywhere on screen unless user explicitly paused
+    const handleFirstGesture = () => {
+      if (audioRef.current && audioRef.current.paused && !userManuallyPaused.current) {
+        audioRef.current.play()
+          .then(() => setMusicPlaying(true))
+          .catch(() => {});
+      }
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+    };
+
+    window.addEventListener('click', handleFirstGesture);
+    window.addEventListener('touchstart', handleFirstGesture);
+
+    return () => {
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+      audioObj.pause();
+      audioObj.src = '';
+    };
+  }, []);
+
+  useEffect(() => {
     const checkCountdown = () => {
       const now = new Date(Date.now() + simulatedOffset);
       const diff = targetDate - now;
@@ -61,6 +104,9 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
       if (diff <= 0) {
         setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, isUnlocked: true });
         if (!isPreviewMode) {
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
           audio.playSparkle();
           confetti({
             particleCount: 150,
@@ -102,10 +148,25 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
     });
   };
 
-  const handleToggleMusic = () => {
-    const active = audio.toggle();
-    setMusicPlaying(active);
-    audio.playSparkle();
+  const handleToggleMusic = (e) => {
+    if (e) e.stopPropagation();
+    if (!audioRef.current) return;
+
+    if (musicPlaying) {
+      audioRef.current.pause();
+      userManuallyPaused.current = true;
+      setMusicPlaying(false);
+    } else {
+      userManuallyPaused.current = false;
+      audioRef.current.play()
+        .then(() => {
+          setMusicPlaying(true);
+          audio.playSparkle();
+        })
+        .catch((err) => {
+          console.warn('Audio play prevented:', err);
+        });
+    }
   };
 
   const handlePasswordSubmit = (e) => {
@@ -393,26 +454,62 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
             <span>Send Lambing to Kuya ({tapLoveCount} ❤️)</span>
           </button>
 
-          {/* Music Toggle */}
+          {/* Music Toggle - Kim Tae Woo & Ben: Darling U (Oh My Venus OST) */}
           <button
             onClick={handleToggleMusic}
             style={{
-              background: 'rgba(255, 255, 255, 0.08)',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
+              background: musicPlaying
+                ? 'linear-gradient(135deg, rgba(244, 63, 94, 0.28) 0%, rgba(245, 158, 11, 0.22) 100%)'
+                : 'rgba(255, 255, 255, 0.08)',
+              border: musicPlaying ? '1px solid rgba(244, 63, 94, 0.55)' : '1px solid rgba(255, 255, 255, 0.15)',
               borderRadius: '9999px',
-              padding: '12px 20px',
-              color: '#cbd5e1',
+              padding: '12px 24px',
+              color: musicPlaying ? '#fecdd3' : '#cbd5e1',
               fontSize: '0.9rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
-              cursor: 'pointer'
+              gap: '0.6rem',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: musicPlaying ? '0 0 25px rgba(244, 63, 94, 0.35)' : 'none'
             }}
           >
-            {musicPlaying ? <Volume2 size={16} color="#fbbf24" /> : <VolumeX size={16} />}
-            <span>{musicPlaying ? 'Romantic Music Playing 🎵' : 'Play Music While Waiting 🎵'}</span>
+            {musicPlaying ? (
+              <>
+                <Volume2 size={18} color="#fb7185" className="animate-pulse" />
+                <span style={{ fontWeight: 600 }}>Playing: Darling U (김태우 & 벤) 🎶</span>
+              </>
+            ) : (
+              <>
+                <VolumeX size={18} color="#94a3b8" />
+                <span>Play "Darling U" (Oh My Venus OST) 🎵</span>
+              </>
+            )}
           </button>
         </div>
+
+        {/* Now Playing Banner */}
+        {musicPlaying && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+              padding: '0.45rem 1.3rem',
+              borderRadius: '9999px',
+              background: 'rgba(244, 63, 94, 0.14)',
+              border: '1px solid rgba(244, 63, 94, 0.35)',
+              color: '#fda4af',
+              fontSize: '0.82rem',
+              marginBottom: '1.6rem',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              animation: 'fadeIn 0.5s ease'
+            }}
+          >
+            <span style={{ fontSize: '1rem' }}>🎧</span>
+            <span>Now Playing: <strong style={{ color: '#ffffff' }}>김태우 & 벤 — Darling U</strong> (Oh My Venus OST 💕)</span>
+          </div>
+        )}
 
         <p style={{ fontSize: '0.95rem', color: '#fda4af', fontStyle: 'italic', fontFamily: "'Caveat', cursive" }}>
           "Counting every single heartbeat until September 22... I love you so much, my Chimp!" — Kuya Marc 💻💖
@@ -668,6 +765,9 @@ export default function MonthsaryLockScreen({ onUnlock, isPreviewMode, onToggleP
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginBottom: '1.5rem' }}>
                 <button
                   onClick={() => {
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                    }
                     onTogglePreview(true);
                     onUnlock();
                     setShowAdminModal(false);
